@@ -4,12 +4,13 @@ import com.google.common.reflect.TypeToken
 import net.corda.core.serialization.SerializableCalculatedProperty
 import net.corda.serialization.internal.AllWhitelist
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.lang.reflect.Type
 import java.time.LocalDateTime
 import java.util.*
 
-class TypeModelTests {
+class LocalTypeModelTests {
 
     private val model = ConfigurableLocalTypeModel(WhitelistBasedTypeModelConfiguration(AllWhitelist))
 
@@ -37,7 +38,7 @@ class TypeModelTests {
          """)
 
         assertInformation<StringCollectionHolder>("""
-            StringCollectionHolder(list: List<String>, map: Map<String, String>, array: List<String>[]): CollectionHolder<String, String>
+            StringCollectionHolder(list: List<String>, map: Map<String, String>, array: List<String>[]): StringKeyedCollectionHolder<String>, CollectionHolder<String, String>
               array: List<String>[]
               list: List<String>
               map: Map<String, String>
@@ -46,9 +47,9 @@ class TypeModelTests {
         assertInformation<Nested>("""
             Nested(collectionHolder: StringKeyedCollectionHolder<Integer>?)
               collectionHolder (optional): StringKeyedCollectionHolder<Integer>(list: List<Integer>, map: Map<String, Integer>, array: List<Integer>[]): CollectionHolder<String, Integer>
-                array: List<Integer>[]
-                list: List<Integer>
-                map: Map<String, Integer>
+              array: List<Integer>[]
+              list: List<Integer>
+              map: Map<String, Integer>
         """)
     }
 
@@ -75,7 +76,7 @@ class TypeModelTests {
               b: String
         """)
         assertInformation<Concrete>("""
-            Concrete(a: Integer[], b: String, c: List<Integer[]>): Super<Integer[]>, SuperSuper<Integer[], String>
+            Concrete(a: Integer[], b: String, c: List<Integer[]>): Abstract<Integer>, Super<Integer[]>, SuperSuper<Integer[], String>
               a: Integer[]
               b: String
               c: List<Integer[]>
@@ -115,6 +116,15 @@ class TypeModelTests {
              b: String
              c: String
         """)
+    }
+
+    class TransitivelyNonComposable(val a: String, val b: Exception)
+
+    @Test
+    fun `non-composable types`() {
+        val modelWithoutOpacity = ConfigurableLocalTypeModel(WhitelistBasedTypeModelConfiguration(AllWhitelist) { false })
+        assertTrue(modelWithoutOpacity.inspect(typeOf<Exception>()) is LocalTypeInformation.NonComposable)
+        assertTrue(modelWithoutOpacity.inspect(typeOf<TransitivelyNonComposable>()) is LocalTypeInformation.NonComposable)
     }
 
     private inline fun <reified T> assertInformation(expected: String) {
