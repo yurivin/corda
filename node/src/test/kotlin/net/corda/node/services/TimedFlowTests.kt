@@ -6,11 +6,7 @@ import net.corda.core.contracts.AlwaysAcceptAttachmentConstraint
 import net.corda.core.contracts.StateRef
 import net.corda.core.contracts.TimeWindow
 import net.corda.core.crypto.SecureHash
-import net.corda.core.flows.FinalityFlow
-import net.corda.core.flows.FlowLogic
-import net.corda.core.flows.FlowSession
-import net.corda.core.flows.NotarisationRequestSignature
-import net.corda.core.flows.NotaryFlow
+import net.corda.core.flows.*
 import net.corda.core.identity.CordaX500Name
 import net.corda.core.identity.Party
 import net.corda.core.internal.FlowIORequest
@@ -34,16 +30,8 @@ import net.corda.testing.contracts.DummyContract
 import net.corda.testing.core.dummyCommand
 import net.corda.testing.core.singleIdentity
 import net.corda.testing.internal.LogHelper
-import net.corda.testing.node.InMemoryMessagingNetwork
-import net.corda.testing.node.MockNetFlowTimeOut
-import net.corda.testing.node.MockNetNotaryConfig
-import net.corda.testing.node.MockNetworkParameters
-import net.corda.testing.node.MockNodeConfigOverrides
-import net.corda.testing.node.internal.InternalMockNetwork
-import net.corda.testing.node.internal.InternalMockNodeParameters
-import net.corda.testing.node.internal.TestStartedNode
-import net.corda.testing.node.internal.cordappsForPackages
-import net.corda.testing.node.internal.startFlow
+import net.corda.testing.node.*
+import net.corda.testing.node.internal.*
 import org.junit.AfterClass
 import org.junit.Before
 import org.junit.BeforeClass
@@ -80,7 +68,7 @@ class TimedFlowTests {
         @JvmStatic
         fun setup() {
             mockNet = InternalMockNetwork(
-                    cordappsForAllNodes = cordappsForPackages("net.corda.testing.contracts", "net.corda.node.services"),
+                    cordappsForAllNodes = cordappsForPackages("net.corda.testing.contracts") + enclosedCordapp(),
                     defaultParameters = MockNetworkParameters().withServicePeerAllocationStrategy(InMemoryMessagingNetwork.ServicePeerAllocationStrategy.RoundRobin()),
                     threadPerNode = true
             )

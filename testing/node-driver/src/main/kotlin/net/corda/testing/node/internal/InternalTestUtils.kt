@@ -10,6 +10,7 @@ import net.corda.core.internal.FlowStateMachine
 import net.corda.core.internal.VisibleForTesting
 import net.corda.core.internal.concurrent.openFuture
 import net.corda.core.internal.times
+import net.corda.core.internal.uncheckedCast
 import net.corda.core.messaging.CordaRPCOps
 import net.corda.core.serialization.internal.SerializationEnvironment
 import net.corda.core.serialization.internal._allEnabledSerializationEnvs
@@ -28,6 +29,8 @@ import net.corda.testing.node.InMemoryMessagingNetwork
 import net.corda.testing.node.TestCordapp
 import net.corda.testing.node.User
 import net.corda.testing.node.testContext
+import org.apache.commons.lang.ClassUtils.getAllInterfaces
+import org.apache.commons.lang.ClassUtils.getAllSuperclasses
 import org.slf4j.LoggerFactory
 import rx.Observable
 import rx.subjects.AsyncSubject
@@ -97,6 +100,15 @@ private fun getCallerClass(directCallerClass: KClass<*>): Class<*>? {
     } catch (e: ClassNotFoundException) {
         null
     }
+}
+
+/** Create a *custom* CorDapp which just contains the enclosed classes of the receiver class. */
+fun Any.enclosedCordapp(): CustomCordapp {
+    val receiverClass = javaClass.enclosingClass ?: javaClass // In case this is called in the companion object
+    val heirarchyClasses: List<Class<*>> = uncheckedCast(getAllInterfaces(receiverClass) + getAllSuperclasses(receiverClass) + receiverClass)
+    val enclosedClasses = heirarchyClasses.flatMap { it.declaredClasses.asList() }
+    require(enclosedClasses.isNotEmpty()) { "${receiverClass.name} does not have any containing classes to build a CorDapp out of" }
+    return CustomCordapp(name = receiverClass.name, classes = (enclosedClasses + heirarchyClasses).toSet())
 }
 
 fun getCallerPackage(directCallerClass: KClass<*>): String? = getCallerClass(directCallerClass)?.`package`?.name

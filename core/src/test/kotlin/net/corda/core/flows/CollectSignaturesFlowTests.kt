@@ -10,6 +10,7 @@ import net.corda.core.identity.CordaX500Name
 import net.corda.core.identity.Party
 import net.corda.core.identity.excludeHostNode
 import net.corda.core.identity.groupAbstractPartyByWellKnownParty
+import net.corda.core.internal.FlowStateMachine
 import net.corda.core.node.services.IdentityService
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
@@ -22,6 +23,7 @@ import net.corda.testing.node.MockServices
 import net.corda.testing.node.internal.InternalMockNetwork
 import net.corda.testing.node.internal.TestStartedNode
 import net.corda.testing.node.internal.cordappsForPackages
+import net.corda.testing.node.internal.enclosedCordapp
 import org.junit.AfterClass
 import org.junit.Test
 
@@ -29,7 +31,7 @@ class CollectSignaturesFlowTests : WithContracts {
     companion object {
         private val miniCorp = TestIdentity(CordaX500Name("MiniCorp", "London", "GB"))
         private val miniCorpServices = MockServices(listOf("net.corda.testing.contracts"), miniCorp, rigorousMock<IdentityService>())
-        private val classMockNet = InternalMockNetwork(cordappsForAllNodes = cordappsForPackages("net.corda.testing.contracts", "net.corda.core.flows"))
+        private val classMockNet = InternalMockNetwork(cordappsForAllNodes = cordappsForPackages("net.corda.testing.contracts") + enclosedCordapp())
 
         private const val MAGIC_NUMBER = 1337
 
@@ -94,51 +96,51 @@ class CollectSignaturesFlowTests : WithContracts {
     }
 
     //region Operators
-    private fun TestStartedNode.startTestFlow(vararg party: Party) =
-            startFlowAndRunNetwork(
-                TestFlow.Initiator(DummyContract.MultiOwnerState(
-                    MAGIC_NUMBER,
-                    listOf(*party)),
-                    mockNet.defaultNotaryIdentity))
+    private fun TestStartedNode.startTestFlow(vararg party: Party): FlowStateMachine<SignedTransaction> {
+        return startFlowAndRunNetwork(
+                Initiator(DummyContract.MultiOwnerState(
+                        MAGIC_NUMBER,
+                        listOf(*party)),
+                        mockNet.defaultNotaryIdentity)
+        )
+    }
 
     //region Test Flow
     // With this flow, the initiator starts the "CollectTransactionFlow". It is then the responders responsibility to
     // override "checkTransaction" and add whatever logic their require to verify the SignedTransaction they are
     // receiving off the wire.
-    object TestFlow {
-        @InitiatingFlow
-        class Initiator(private val state: DummyContract.MultiOwnerState, private val notary: Party) : FlowLogic<SignedTransaction>() {
-            @Suspendable
-            override fun call(): SignedTransaction {
-                val myInputKeys = state.participants.map { it.owningKey }
-                val command = Command(DummyContract.Commands.Create(), myInputKeys)
-                val builder = TransactionBuilder(notary).withItems(StateAndContract(state, DummyContract.PROGRAM_ID), command)
-                val ptx = serviceHub.signInitialTransaction(builder)
-                val sessions = excludeHostNode(serviceHub, groupAbstractPartyByWellKnownParty(serviceHub, state.owners)).map { initiateFlow(it.key) }
-                val stx = subFlow(CollectSignaturesFlow(ptx, sessions, myInputKeys))
-                return subFlow(FinalityFlow(stx, sessions))
-            }
+    @InitiatingFlow
+    class Initiator(private val state: DummyContract.MultiOwnerState, private val notary: Party) : FlowLogic<SignedTransaction>() {
+        @Suspendable
+        override fun call(): SignedTransaction {
+            val myInputKeys = state.participants.map { it.owningKey }
+            val command = Command(DummyContract.Commands.Create(), myInputKeys)
+            val builder = TransactionBuilder(notary).withItems(StateAndContract(state, DummyContract.PROGRAM_ID), command)
+            val ptx = serviceHub.signInitialTransaction(builder)
+            val sessions = excludeHostNode(serviceHub, groupAbstractPartyByWellKnownParty(serviceHub, state.owners)).map { initiateFlow(it.key) }
+            val stx = subFlow(CollectSignaturesFlow(ptx, sessions, myInputKeys))
+            return subFlow(FinalityFlow(stx, sessions))
         }
+    }
 
-        @InitiatedBy(TestFlow.Initiator::class)
-        class Responder(private val otherSideSession: FlowSession) : FlowLogic<Unit>() {
-            @Suspendable
-            override fun call() {
-                val signFlow = object : SignTransactionFlow(otherSideSession) {
-                    @Suspendable
-                    override fun checkTransaction(stx: SignedTransaction) = requireThat {
-                        val tx = stx.tx
-                        val ltx = tx.toLedgerTransaction(serviceHub)
-                        "There should only be one output state" using (tx.outputs.size == 1)
-                        "There should only be one output state" using (tx.inputs.isEmpty())
-                        val magicNumberState = ltx.outputsOfType<DummyContract.MultiOwnerState>().single()
-                        "Must be $MAGIC_NUMBER or greater" using (magicNumberState.magicNumber >= MAGIC_NUMBER)
-                    }
+    @InitiatedBy(Initiator::class)
+    class Responder(private val otherSideSession: FlowSession) : FlowLogic<Unit>() {
+        @Suspendable
+        override fun call() {
+            val signFlow = object : SignTransactionFlow(otherSideSession) {
+                @Suspendable
+                override fun checkTransaction(stx: SignedTransaction) = requireThat {
+                    val tx = stx.tx
+                    val ltx = tx.toLedgerTransaction(serviceHub)
+                    "There should only be one output state" using (tx.outputs.size == 1)
+                    "There should only be one output state" using (tx.inputs.isEmpty())
+                    val magicNumberState = ltx.outputsOfType<DummyContract.MultiOwnerState>().single()
+                    "Must be $MAGIC_NUMBER or greater" using (magicNumberState.magicNumber >= MAGIC_NUMBER)
                 }
-
-                val stxId = subFlow(signFlow).id
-                subFlow(ReceiveFinalityFlow(otherSideSession, expectedTxId = stxId))
             }
+
+            val stxId = subFlow(signFlow).id
+            subFlow(ReceiveFinalityFlow(otherSideSession, expectedTxId = stxId))
         }
     }
     //region
